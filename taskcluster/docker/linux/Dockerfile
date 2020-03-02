@@ -81,6 +81,7 @@ RUN apt-get update -qq \
         zlib1g-dev \
         # <TODO: Delete p7zip once NSS windows is actually compiled instead of downloaded>.
         p7zip-full \
+        mercurial \
         ## End of NSS build dependencies
         # Required to rsync the `libs` folder after fetch (see taskcluster/ci/android-build/kind.yml)
         rsync \

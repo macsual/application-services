@@ -6,9 +6,9 @@ SQLCIPHER_VERSION="4.3.0"
 SQLCIPHER_SHA256="fccb37e440ada898902b294d02cde7af9e8706b185d77ed9f6f4d5b18b4c305f"
 
 NSS="nss-3.51.1"
-NSS_ARCHIVE="nss-3.51.1-with-nspr-4.25.tar.gz"
-NSS_URL="http://ftp.mozilla.org/pub/security/nss/releases/NSS_3_51_1_RTM/src/${NSS_ARCHIVE}"
-NSS_SHA256="743174d0fbd0407fc4d5c6e92f138b9d2101f8c2c3f61b685b4bd5a795426030"
+# NSS_ARCHIVE="nss-3.51.1-with-nspr-4.25.tar.gz"
+# NSS_URL="http://ftp.mozilla.org/pub/security/nss/releases/NSS_3_51_1_RTM/src/${NSS_ARCHIVE}"
+# NSS_SHA256="743174d0fbd0407fc4d5c6e92f138b9d2101f8c2c3f61b685b4bd5a795426030"
 
 # End of configuration.
 
@@ -59,15 +59,45 @@ tar xfz "${SQLCIPHER}.tar.gz"
 SQLCIPHER_SRC_PATH=$(abspath "sqlcipher-${SQLCIPHER_VERSION}")
 
 rm -rf "${NSS}"
-if [[ ! -e "${NSS_ARCHIVE}" ]]; then
-  echo "Downloading ${NSS_ARCHIVE}"
-  curl -sfSL --retry 5 --retry-delay 10 -O "${NSS_URL}"
-else
-  echo "Using ${NSS_ARCHIVE}"
-fi
-echo "${NSS_SHA256}  ${NSS_ARCHIVE}" | shasum -a 256 -c - || exit 2
-tar xfz "${NSS_ARCHIVE}"
+# if [[ ! -e "${NSS_ARCHIVE}" ]]; then
+#   echo "Downloading ${NSS_ARCHIVE}"
+#   curl -sfSL --retry 5 --retry-delay 10 -O "${NSS_URL}"
+# else
+#   echo "Using ${NSS_ARCHIVE}"
+# fi
+# echo "${NSS_SHA256}  ${NSS_ARCHIVE}" | shasum -a 256 -c - || exit 2
+# tar xfz "${NSS_ARCHIVE}"
+hg clone https://hg.mozilla.org/projects/nss/ -r 2c989888dee7512662365910c9f7f96f11816aba "${NSS}"/nss
+hg clone https://hg.mozilla.org/projects/nspr/ -r 219d131499d57b02c0ed9b788dbeffd7e75e2fe4 "${NSS}"/nspr
 NSS_SRC_PATH=$(abspath "${NSS}")
+
+# Temporary
+echo $'\
+diff --git a/lib/freebl/blinit.c b/lib/freebl/blinit.c
+index c9c0dda59f..db7d1eab11 100644
+--- a/lib/freebl/blinit.c
++++ b/lib/freebl/blinit.c
+@@ -21,6 +21,10 @@
+ #include <windows.h>
+ #endif
+
++#if defined(DARWIN)
++#include <TargetConditionals.h>
++#endif
++
+ static PRCallOnceType coFreeblInit;
+
+ /* State variables. */
+@@ -123,7 +127,7 @@ CheckX86CPUSupport()
+ #endif /* NSS_X86_OR_X64 */
+
+ /* clang-format off */
+-#if defined(__aarch64__) || defined(__arm__)
++#if (defined(__aarch64__) || defined(__arm__)) && !defined(TARGET_OS_IPHONE)
+ #ifndef __has_include
+ #define __has_include(x) 0
+ #endif
+' | patch "${NSS_SRC_PATH}/nss/lib/freebl/blinit.c"
 
 # Some NSS symbols clash with OpenSSL symbols, rename them using
 # C preprocessor define macros.

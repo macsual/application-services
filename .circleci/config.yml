@@ -99,7 +99,8 @@ commands:
       - run:
           name: Install NSS build system dependencies
           command: |
-            brew install ninja
+            brew unlink python@2
+            brew install mercurial ninja
             pushd ..
             git clone https://chromium.googlesource.com/external/gyp.git
             pushd gyp
