@@ -80,12 +80,9 @@ fn save_to_db(tx: &Transaction<'_>, ext_id: &str, val: &JsonValue) -> Result<()>
     } else {
         // Convert to bytes so we can enforce the quota.
         let sval = val.to_string();
-        if sval.as_bytes().len() > QUOTA_BYTES {
+        if sval.len() > QUOTA_BYTES {
             return Err(ErrorKind::QuotaError(QuotaReason::TotalBytes).into());
         }
-        // XXX - as_bytes() above and using sval below means 2 utf-8 encodes.
-        // Ideally we could work out how to convert to bytes once and use it in both
-        // places.
         log::trace!("saving data for '{}': writing", ext_id);
         tx.execute_named_cached(
             "INSERT INTO storage_sync_data(ext_id, data, sync_change_counter)

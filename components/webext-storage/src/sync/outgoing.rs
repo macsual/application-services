@@ -15,14 +15,16 @@ use crate::error::*;
 
 use super::ServerPayload;
 
-// This is the "state" for outgoing items - it's so that after we POST the
-// outgoing records we can update the local DB.
+// This is the "state" for outgoing items - it's meta-data for an item that we
+// use to update the local DB after we POST outgoing records.
 #[derive(Debug)]
 pub struct OutgoingStateHolder {
     ext_id: String,
     change_counter: i32,
 }
 
+// A simple holder for the payload that needs to be sent to the servers, and
+// the above item meta-data.
 #[derive(Debug)]
 pub struct OutgoingInfo {
     pub state: OutgoingStateHolder,
@@ -58,8 +60,8 @@ impl OutgoingInfo {
 }
 
 /// Gets info about what should be uploaded. Returns a vec of the payload which
-// should be uploaded, plus the state for those items which should be held
-// until the upload is complete, then passed back to record_uploaded.
+/// should be uploaded, plus meta-data for those items which should be held
+/// until the upload is complete, then passed back to record_uploaded.
 pub fn get_outgoing<S: ?Sized + Interruptee>(
     conn: &Connection,
     _signal: &S,
@@ -75,6 +77,8 @@ pub fn get_outgoing<S: ?Sized + Interruptee>(
     Ok(elts)
 }
 
+/// Record the fact that an item was uploaded. This updates the state of the
+/// local DB to reflect the state of the server we just updated.
 pub fn record_uploaded<S: ?Sized + Interruptee>(
     tx: &Transaction<'_>,
     items: &[OutgoingInfo],
@@ -164,11 +168,6 @@ mod tests {
         assert_eq!(changes[0].state.ext_id, "ext_with_changes".to_string());
 
         record_uploaded(&tx, &changes, &NeverInterrupts)?;
-
-        // let (counter, status): (i32, u8) = conn.query_row_and_then::<(i32, u8), _, _, _>(
-        //     "SELECT sync_change_counter, sync_status FROM storage_sync_data WHERE ext_id = 'ext_with_changes'",
-        //     NO_PARAMS,
-        //     |row| Ok((row.get::<_, i32>(0)?, row.get::<_, u8>(1)?)))?;
 
         let counter: i32 = tx.conn().query_one(
             "SELECT sync_change_counter FROM storage_sync_data WHERE ext_id = 'ext_with_changes'",

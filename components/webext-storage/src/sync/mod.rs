@@ -108,9 +108,7 @@ mod tests {
 
     #[test]
     fn test_3way_merging() -> Result<()> {
-        // fn merge(other: JsonMap, mut ours: JsonMap, mut parent: JsonMap) -> IncomingAction {
-        // No conflict.
-        // Identical local and remote.
+        // No conflict - identical local and remote.
         assert_eq!(
             merge(
                 map!({"one": "one", "two": "two"}),

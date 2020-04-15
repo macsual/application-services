@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS storage_sync_data (
 
 CREATE TABLE IF NOT EXISTS storage_sync_mirror (
     guid TEXT PRIMARY KEY,
+
     /* The extension_id is explicitly not the GUID used on the server.
        We may end up making this a regular foreign-key relationship back to
        storage_sync_data, although maybe not - the ext_id may not exist in
@@ -39,9 +40,10 @@ CREATE TABLE IF NOT EXISTS storage_sync_mirror (
     ext_id TEXT NOT NULL UNIQUE,
 
     /* Timestamp as recorded by the server - XXX - we don't currently use this
-       for merging, so should consider killing it?
+       for anything at all, so should consider killing it?
     */
     server_modified INTEGER NOT NULL,
+
     /* The JSON payload. We *do* allow NULL here - it means "deleted" */
     data TEXT
 );

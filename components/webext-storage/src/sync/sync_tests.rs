@@ -2,6 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// This file tries to simulate "full syncs" - ie, from local state changing, to
+// fetching incoming items, generating items to upload, then updating the local
+// state (including the mirror) as a result.
+
 use crate::api::{clear, get, set};
 use crate::db::test::new_mem_db;
 use crate::error::*;

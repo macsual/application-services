@@ -61,7 +61,7 @@ fn create(db: &Connection) -> Result<()> {
 }
 
 fn create_temp_tables(db: &Connection) -> Result<()> {
-    log::debug!("Creating schema");
+    log::debug!("Creating temp tables");
     db.execute_batch(CREATE_TEMP_TABLES_SQL)?;
     Ok(())
 }
