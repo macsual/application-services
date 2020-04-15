@@ -9,7 +9,7 @@ use crate::sync::incoming::{apply_actions, get_incoming, plan_incoming, stage_in
 use crate::sync::outgoing::{get_outgoing, record_uploaded, OutgoingInfo};
 use crate::sync::ServerPayload;
 use interrupt::NeverInterrupts;
-use rusqlite::{Connection, Row};
+use rusqlite::{Connection, Row, Transaction};
 use serde_json::json;
 use sql_support::ConnExt;
 use sync15_traits::ServerTimestamp;
@@ -17,19 +17,19 @@ use sync_guid::Guid;
 
 // Here we try and simulate everything done by a "full sync", just minus the
 // engine. Returns the records we uploaded.
-fn do_sync(conn: &Connection, incoming_bsos: Vec<ServerPayload>) -> Result<Vec<OutgoingInfo>> {
+fn do_sync(tx: &Transaction<'_>, incoming_bsos: Vec<ServerPayload>) -> Result<Vec<OutgoingInfo>> {
     // First we stage the incoming in the temp tables.
-    stage_incoming(conn, incoming_bsos, &NeverInterrupts)?;
+    stage_incoming(tx, incoming_bsos, &NeverInterrupts)?;
     // Then we process them getting a Vec of (item, state), which we turn into
     // a Vec of (item, action)
-    let actions = get_incoming(conn)?
+    let actions = get_incoming(tx)?
         .into_iter()
         .map(|(item, state)| (item, plan_incoming(state)))
         .collect();
-    apply_actions(&conn, actions, &NeverInterrupts)?;
+    apply_actions(&tx, actions, &NeverInterrupts)?;
     // So we've done incoming - do outgoing.
-    let outgoing = get_outgoing(conn, &NeverInterrupts)?;
-    record_uploaded(conn, &outgoing, &NeverInterrupts)?;
+    let outgoing = get_outgoing(tx, &NeverInterrupts)?;
+    record_uploaded(tx, &outgoing, &NeverInterrupts)?;
     Ok(outgoing)
 }
 
@@ -41,7 +41,7 @@ fn check_finished_with(conn: &Connection, ext_id: &str, val: serde_json::Value) 
     assert_eq!(mirror, DbData::Data(val.to_string()));
     // and there should be zero items with a change counter.
     let count = conn.query_row_and_then(
-        "SELECT COUNT(*) FROM moz_extension_data WHERE sync_change_counter != 0;",
+        "SELECT COUNT(*) FROM storage_sync_data WHERE sync_change_counter != 0;",
         rusqlite::NO_PARAMS,
         |row| row.get::<_, u32>(0),
     )?;
@@ -89,22 +89,23 @@ fn _get(conn: &Connection, expected_extid: &str, table: &str) -> DbData {
 }
 
 fn get_mirror_data(conn: &Connection, expected_extid: &str) -> DbData {
-    _get(conn, expected_extid, "moz_extension_data_mirror")
+    _get(conn, expected_extid, "storage_sync_mirror")
 }
 
 fn get_local_data(conn: &Connection, expected_extid: &str) -> DbData {
-    _get(conn, expected_extid, "moz_extension_data")
+    _get(conn, expected_extid, "storage_sync_data")
 }
 
 #[test]
 fn test_simple_outgoing_sync() -> Result<()> {
     // So we are starting with an empty local store and empty server store.
     let db = new_mem_db();
-    let conn = db.writer.lock().unwrap();
+    let mut conn = db.writer.lock().unwrap();
+    let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value", "key2": "key2-value"});
-    set(&conn, "ext-id", data.clone())?;
-    assert_eq!(do_sync(&conn, vec![])?.len(), 1);
-    check_finished_with(&conn, "ext-id", data)?;
+    set(&tx, "ext-id", data.clone())?;
+    assert_eq!(do_sync(&tx, vec![])?.len(), 1);
+    check_finished_with(&tx, "ext-id", data)?;
     Ok(())
 }
 
@@ -113,37 +114,39 @@ fn test_simple_tombstone() -> Result<()> {
     // Tombstones are only kept when the mirror has that record - so first
     // test that, then arrange for the mirror to have the record.
     let db = new_mem_db();
-    let conn = db.writer.lock().unwrap();
+    let mut conn = db.writer.lock().unwrap();
+    let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value", "key2": "key2-value"});
-    set(&conn, "ext-id", data.clone())?;
+    set(&tx, "ext-id", data.clone())?;
     assert_eq!(
-        get_local_data(&conn, "ext-id"),
+        get_local_data(&tx, "ext-id"),
         DbData::Data(data.to_string())
     );
     // hasn't synced yet, so clearing shouldn't write a tombstone.
-    clear(&conn, "ext-id")?;
-    assert_eq!(get_local_data(&conn, "ext-id"), DbData::NoRow);
+    clear(&tx, "ext-id")?;
+    assert_eq!(get_local_data(&tx, "ext-id"), DbData::NoRow);
     // now set data again and sync and *then* remove.
-    set(&conn, "ext-id", data)?;
-    assert_eq!(do_sync(&conn, vec![])?.len(), 1);
-    assert!(get_local_data(&conn, "ext-id").has_data());
-    assert!(get_mirror_data(&conn, "ext-id").has_data());
-    clear(&conn, "ext-id")?;
-    assert_eq!(get_local_data(&conn, "ext-id"), DbData::NullRow);
+    set(&tx, "ext-id", data)?;
+    assert_eq!(do_sync(&tx, vec![])?.len(), 1);
+    assert!(get_local_data(&tx, "ext-id").has_data());
+    assert!(get_mirror_data(&tx, "ext-id").has_data());
+    clear(&tx, "ext-id")?;
+    assert_eq!(get_local_data(&tx, "ext-id"), DbData::NullRow);
     // then after syncing, the tombstone will be in the mirror but the local row
     // has been removed.
-    assert_eq!(do_sync(&conn, vec![])?.len(), 1);
-    assert_eq!(get_local_data(&conn, "ext-id"), DbData::NoRow);
-    assert_eq!(get_mirror_data(&conn, "ext-id"), DbData::NullRow);
+    assert_eq!(do_sync(&tx, vec![])?.len(), 1);
+    assert_eq!(get_local_data(&tx, "ext-id"), DbData::NoRow);
+    assert_eq!(get_mirror_data(&tx, "ext-id"), DbData::NullRow);
     Ok(())
 }
 
 #[test]
 fn test_merged() -> Result<()> {
     let db = new_mem_db();
-    let conn = db.writer.lock().unwrap();
+    let mut conn = db.writer.lock().unwrap();
+    let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value"});
-    set(&conn, "ext-id", data)?;
+    set(&tx, "ext-id", data)?;
     // Incoming payload without 'key1' and conflicting for 'key2'
     let payload = ServerPayload {
         guid: Guid::from("guid"),
@@ -152,9 +155,9 @@ fn test_merged() -> Result<()> {
         deleted: false,
         last_modified: ServerTimestamp(0),
     };
-    assert_eq!(do_sync(&conn, vec![payload])?.len(), 1);
+    assert_eq!(do_sync(&tx, vec![payload])?.len(), 1);
     check_finished_with(
-        &conn,
+        &tx,
         "ext-id",
         json!({"key1": "key1-value", "key2": "key2-value"}),
     )?;
@@ -164,9 +167,10 @@ fn test_merged() -> Result<()> {
 #[test]
 fn test_reconciled() -> Result<()> {
     let db = new_mem_db();
-    let conn = db.writer.lock().unwrap();
+    let mut conn = db.writer.lock().unwrap();
+    let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value"});
-    set(&conn, "ext-id", data)?;
+    set(&tx, "ext-id", data)?;
     // Incoming payload without 'key1' and conflicting for 'key2'
     let payload = ServerPayload {
         guid: Guid::from("guid"),
@@ -176,17 +180,18 @@ fn test_reconciled() -> Result<()> {
         last_modified: ServerTimestamp(0),
     };
     // Should be no outgoing records as we reconciled.
-    assert_eq!(do_sync(&conn, vec![payload])?.len(), 0);
-    check_finished_with(&conn, "ext-id", json!({"key1": "key1-value"}))?;
+    assert_eq!(do_sync(&tx, vec![payload])?.len(), 0);
+    check_finished_with(&tx, "ext-id", json!({"key1": "key1-value"}))?;
     Ok(())
 }
 
 #[test]
 fn test_conflicting_incoming() -> Result<()> {
     let db = new_mem_db();
-    let conn = db.writer.lock().unwrap();
+    let mut conn = db.writer.lock().unwrap();
+    let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value", "key2": "key2-value"});
-    set(&conn, "ext-id", data)?;
+    set(&tx, "ext-id", data)?;
     // Incoming payload without 'key1' and conflicting for 'key2'
     let payload = ServerPayload {
         guid: Guid::from("guid"),
@@ -195,9 +200,9 @@ fn test_conflicting_incoming() -> Result<()> {
         deleted: false,
         last_modified: ServerTimestamp(0),
     };
-    assert_eq!(do_sync(&conn, vec![payload])?.len(), 1);
+    assert_eq!(do_sync(&tx, vec![payload])?.len(), 1);
     check_finished_with(
-        &conn,
+        &tx,
         "ext-id",
         json!({"key1": "key1-value", "key2": "key2-incoming"}),
     )?;

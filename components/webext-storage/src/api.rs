@@ -48,7 +48,7 @@ fn save_to_db(tx: &Transaction<'_>, ext_id: &str, val: &JsonValue) -> Result<()>
     };
     if is_delete {
         let in_mirror = tx.query_row_and_then_named(
-            "SELECT EXISTS(SELECT 1 FROM moz_extension_data_mirror WHERE ext_id = :ext_id);",
+            "SELECT EXISTS(SELECT 1 FROM storage_sync_mirror WHERE ext_id = :ext_id);",
             rusqlite::named_params! {
                 ":ext_id": ext_id,
             },
@@ -59,7 +59,7 @@ fn save_to_db(tx: &Transaction<'_>, ext_id: &str, val: &JsonValue) -> Result<()>
             log::trace!("saving data for '{}': leaving a tombstone", ext_id);
             tx.execute_named_cached(
                 "
-                INSERT INTO moz_extension_data(ext_id, data, sync_change_counter)
+                INSERT INTO storage_sync_data(ext_id, data, sync_change_counter)
                 VALUES (:ext_id, NULL, 1)
                 ON CONFLICT (ext_id) DO UPDATE
                 SET data = NULL, sync_change_counter = sync_change_counter + 1",
@@ -71,7 +71,7 @@ fn save_to_db(tx: &Transaction<'_>, ext_id: &str, val: &JsonValue) -> Result<()>
             log::trace!("saving data for '{}': removing the row", ext_id);
             tx.execute_named_cached(
                 "
-                DELETE FROM moz_extension_data WHERE ext_id = :ext_id",
+                DELETE FROM storage_sync_data WHERE ext_id = :ext_id",
                 rusqlite::named_params! {
                     ":ext_id": ext_id,
                 },
@@ -88,7 +88,7 @@ fn save_to_db(tx: &Transaction<'_>, ext_id: &str, val: &JsonValue) -> Result<()>
         // places.
         log::trace!("saving data for '{}': writing", ext_id);
         tx.execute_named_cached(
-            "INSERT INTO moz_extension_data(ext_id, data, sync_change_counter)
+            "INSERT INTO storage_sync_data(ext_id, data, sync_change_counter)
                 VALUES (:ext_id, :data, 1)
                 ON CONFLICT (ext_id) DO UPDATE
                 set data=:data, sync_change_counter = sync_change_counter + 1",

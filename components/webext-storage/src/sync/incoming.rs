@@ -6,7 +6,7 @@
 // working out a plan for them, updating the local data and mirror, etc.
 
 use interrupt::Interruptee;
-use rusqlite::{types::ToSql, Connection, Row};
+use rusqlite::{types::ToSql, Connection, Row, Transaction};
 use serde_json;
 use sql_support::ConnExt;
 use sync_guid::Guid as SyncGuid;
@@ -38,21 +38,19 @@ fn json_map_from_row(row: &Row<'_>, col: &str) -> Result<Option<JsonMap>> {
 /// The first thing we do with incoming items is to "stage" them in a temp table.
 /// The actual processing is done via this table.
 pub fn stage_incoming<S: ?Sized + Interruptee>(
-    conn: &Connection,
+    tx: &Transaction<'_>,
     incoming_bsos: Vec<ServerPayload>,
     signal: &S,
 ) -> Result<()> {
     // markh always struggles with the sql_support chunking :( So take the
     // low road...
-    let cext = conn.conn();
-    let tx = cext.unchecked_transaction()?;
     let sql = "
-        INSERT OR REPLACE INTO temp.moz_extension_data_staging
+        INSERT OR REPLACE INTO temp.storage_sync_staging
         (guid, ext_id, data, server_modified)
         VALUES (:guid, :ext_id, :data, :ts)";
     for bso in incoming_bsos {
         signal.err_if_interrupted()?;
-        cext.execute_named_cached(
+        tx.execute_named_cached(
             &sql,
             &[
                 (":guid", &bso.guid as &dyn ToSql),
@@ -62,7 +60,6 @@ pub fn stage_incoming<S: ?Sized + Interruptee>(
             ],
         )?;
     }
-    tx.commit()?;
     Ok(())
 }
 
@@ -106,9 +103,9 @@ pub fn get_incoming(conn: &Connection) -> Result<Vec<(IncomingItem, IncomingStat
             s.ext_id as ext_id,
             s.data as s_data, m.data as m_data, l.data as l_data,
             l.sync_change_counter
-        FROM temp.moz_extension_data_staging s
-        LEFT JOIN moz_extension_data_mirror m ON m.guid = s.guid
-        LEFT JOIN moz_extension_data l on l.ext_id = s.ext_id;";
+        FROM temp.storage_sync_staging s
+        LEFT JOIN storage_sync_mirror m ON m.guid = s.guid
+        LEFT JOIN storage_sync_data l on l.ext_id = s.ext_id;";
 
     fn from_row(row: &Row<'_>) -> Result<(IncomingItem, IncomingState)> {
         let guid = row.get("guid")?;
@@ -236,12 +233,10 @@ pub fn plan_incoming(s: IncomingState) -> IncomingAction {
 
 // Apply the actions necessary to fully process the incoming items.
 pub fn apply_actions<S: ?Sized + Interruptee>(
-    conn: &Connection,
+    tx: &Transaction<'_>,
     actions: Vec<(IncomingItem, IncomingAction)>,
     signal: &S,
 ) -> Result<()> {
-    let cext = conn.conn();
-    let tx = cext.unchecked_transaction()?;
     for (item, action) in actions {
         signal.err_if_interrupted()?;
 
@@ -250,15 +245,15 @@ pub fn apply_actions<S: ?Sized + Interruptee>(
         match action {
             IncomingAction::DeleteLocally => {
                 // Can just nuke it entirely.
-                cext.execute_named_cached(
-                    "DELETE FROM moz_extension_data WHERE ext_id = :ext_id",
+                tx.execute_named_cached(
+                    "DELETE FROM storage_sync_data WHERE ext_id = :ext_id",
                     &[(":ext_id", &item.ext_id)],
                 )?;
             }
             // We want to update the local record with 'data' and after this update the item no longer is considered dirty.
             IncomingAction::TakeRemote { data } => {
-                cext.execute_named_cached(
-                    "UPDATE moz_extension_data SET data = :data, sync_change_counter = 0 WHERE ext_id = :ext_id",
+                tx.execute_named_cached(
+                    "UPDATE storage_sync_data SET data = :data, sync_change_counter = 0 WHERE ext_id = :ext_id",
                     &[
                         (":ext_id", &item.ext_id),
                         (":data", &serde_json::Value::Object(data).as_str()),
@@ -269,8 +264,8 @@ pub fn apply_actions<S: ?Sized + Interruptee>(
             // We merged this data, so need to update locally but still consider
             // it dirty because the merged data must be uploaded.
             IncomingAction::Merge { data } => {
-                cext.execute_named_cached(
-                    "UPDATE moz_extension_data SET data = :data, sync_change_counter = sync_change_counter + 1 WHERE ext_id = :ext_id",
+                tx.execute_named_cached(
+                    "UPDATE storage_sync_data SET data = :data, sync_change_counter = sync_change_counter + 1 WHERE ext_id = :ext_id",
                     &[
                         (":ext_id", &item.ext_id),
                         (":data", &serde_json::Value::Object(data).to_string()),
@@ -281,14 +276,13 @@ pub fn apply_actions<S: ?Sized + Interruptee>(
             // Both local and remote ended up the same - only need to nuke the
             // change counter.
             IncomingAction::Same => {
-                cext.execute_named_cached(
-                    "UPDATE moz_extension_data SET sync_change_counter = 0 WHERE ext_id = :ext_id",
+                tx.execute_named_cached(
+                    "UPDATE storage_sync_data SET sync_change_counter = 0 WHERE ext_id = :ext_id",
                     &[(":ext_id", &item.ext_id)],
                 )?;
             }
         }
     }
-    tx.commit()?;
     Ok(())
 }
 
@@ -326,7 +320,8 @@ mod tests {
     #[test]
     fn test_incoming_populates_staging() -> Result<()> {
         let db = new_mem_db();
-        let conn = db.writer.lock().unwrap();
+        let mut conn = db.writer.lock().unwrap();
+        let tx = conn.transaction()?;
 
         let incoming = json! {[
             {
@@ -337,13 +332,10 @@ mod tests {
             }
         ]};
 
-        stage_incoming(&conn, array_to_incoming(incoming), &NeverInterrupts)?;
+        stage_incoming(&tx, array_to_incoming(incoming), &NeverInterrupts)?;
         // check staging table
         assert_eq!(
-            ssi(
-                &conn,
-                "SELECT count(*) FROM temp.moz_extension_data_staging"
-            ),
+            ssi(&tx, "SELECT count(*) FROM temp.storage_sync_staging"),
             1
         );
         Ok(())
@@ -352,18 +344,19 @@ mod tests {
     #[test]
     fn test_fetch_incoming_state() -> Result<()> {
         let db = new_mem_db();
-        let conn = db.writer.lock().unwrap();
+        let mut conn = db.writer.lock().unwrap();
+        let tx = conn.transaction()?;
 
         // Start with an item just in staging.
-        conn.execute(
+        tx.execute(
             r#"
-            INSERT INTO temp.moz_extension_data_staging (guid, ext_id, data, server_modified)
+            INSERT INTO temp.storage_sync_staging (guid, ext_id, data, server_modified)
             VALUES ('guid', 'ext_id', '{"foo":"bar"}', 1)
         "#,
             NO_PARAMS,
         )?;
 
-        let incoming = get_incoming(&conn)?;
+        let incoming = get_incoming(&tx)?;
         assert_eq!(incoming.len(), 1);
         assert_eq!(
             incoming[0].0,
@@ -380,14 +373,14 @@ mod tests {
         );
 
         // Add the same item to the mirror.
-        conn.execute(
+        tx.execute(
             r#"
-            INSERT INTO moz_extension_data_mirror (guid, ext_id, data, server_modified)
+            INSERT INTO storage_sync_mirror (guid, ext_id, data, server_modified)
             VALUES ('guid', 'ext_id', '{"foo":"new"}', 2)
         "#,
             NO_PARAMS,
         )?;
-        let incoming = get_incoming(&conn)?;
+        let incoming = get_incoming(&tx)?;
         assert_eq!(incoming.len(), 1);
         assert_eq!(
             incoming[0].1,
@@ -398,8 +391,8 @@ mod tests {
         );
 
         // and finally the data itself - might as use the API here!
-        api::set(&conn, "ext_id", json!({"foo": "local"}))?;
-        let incoming = get_incoming(&conn)?;
+        api::set(&tx, "ext_id", json!({"foo": "local"}))?;
+        let incoming = get_incoming(&tx)?;
         assert_eq!(incoming.len(), 1);
         assert_eq!(
             incoming[0].1,
@@ -416,18 +409,19 @@ mod tests {
     #[test]
     fn test_fetch_incoming_state_nulls() -> Result<()> {
         let db = new_mem_db();
-        let conn = db.writer.lock().unwrap();
+        let mut conn = db.writer.lock().unwrap();
+        let tx = conn.transaction()?;
 
         // Start with an item just in staging.
-        conn.execute(
+        tx.execute(
             r#"
-            INSERT INTO temp.moz_extension_data_staging (guid, ext_id, data, server_modified)
+            INSERT INTO temp.storage_sync_staging (guid, ext_id, data, server_modified)
             VALUES ('guid', 'ext_id', NULL, 1)
         "#,
             NO_PARAMS,
         )?;
 
-        let incoming = get_incoming(&conn)?;
+        let incoming = get_incoming(&tx)?;
         assert_eq!(incoming.len(), 1);
         assert_eq!(
             incoming[0].1,
@@ -435,14 +429,14 @@ mod tests {
         );
 
         // Add the same item to the mirror.
-        conn.execute(
+        tx.execute(
             r#"
-            INSERT INTO moz_extension_data_mirror (guid, ext_id, data, server_modified)
+            INSERT INTO storage_sync_mirror (guid, ext_id, data, server_modified)
             VALUES ('guid', 'ext_id', NULL, 2)
         "#,
             NO_PARAMS,
         )?;
-        let incoming = get_incoming(&conn)?;
+        let incoming = get_incoming(&tx)?;
         assert_eq!(incoming.len(), 1);
         assert_eq!(
             incoming[0].1,
@@ -452,14 +446,14 @@ mod tests {
             }
         );
 
-        conn.execute(
+        tx.execute(
             r#"
-            INSERT INTO moz_extension_data (ext_id, data)
+            INSERT INTO storage_sync_data (ext_id, data)
             VALUES ('ext_id', NULL)
         "#,
             NO_PARAMS,
         )?;
-        let incoming = get_incoming(&conn)?;
+        let incoming = get_incoming(&tx)?;
         assert_eq!(incoming.len(), 1);
         assert_eq!(
             incoming[0].1,

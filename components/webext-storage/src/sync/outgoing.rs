@@ -6,7 +6,7 @@
 // managing the sync state of the local DB.
 
 use interrupt::Interruptee;
-use rusqlite::{Connection, Row};
+use rusqlite::{Connection, Row, Transaction};
 use sql_support::ConnExt;
 use sync15_traits::ServerTimestamp;
 use sync_guid::Guid as SyncGuid;
@@ -65,8 +65,8 @@ pub fn get_outgoing<S: ?Sized + Interruptee>(
     _signal: &S,
 ) -> Result<Vec<OutgoingInfo>> {
     let sql = "SELECT l.ext_id, l.data, l.sync_change_counter, m.guid
-               FROM moz_extension_data l
-               LEFT JOIN moz_extension_data_mirror m ON m.ext_id = l.ext_id
+               FROM storage_sync_data l
+               LEFT JOIN storage_sync_mirror m ON m.ext_id = l.ext_id
                WHERE sync_change_counter > 0";
     let elts = conn
         .conn()
@@ -76,20 +76,17 @@ pub fn get_outgoing<S: ?Sized + Interruptee>(
 }
 
 pub fn record_uploaded<S: ?Sized + Interruptee>(
-    conn: &Connection,
+    tx: &Transaction<'_>,
     items: &[OutgoingInfo],
     signal: &S,
 ) -> Result<()> {
-    let cext = conn.conn();
-    let tx = cext.unchecked_transaction()?;
-
     log::debug!(
         "record_uploaded recording that {} items were uploaded",
         items.len()
     );
 
     let sql = "
-        UPDATE moz_extension_data SET
+        UPDATE storage_sync_data SET
             sync_change_counter = (sync_change_counter - :old_counter)
         WHERE ext_id = :ext_id;";
     for item in items.iter() {
@@ -99,7 +96,7 @@ pub fn record_uploaded<S: ?Sized + Interruptee>(
             item.state.ext_id,
             item.payload
         );
-        conn.execute_named(
+        tx.execute_named(
             sql,
             rusqlite::named_params! {
                 ":old_counter": item.state.change_counter,
@@ -109,25 +106,25 @@ pub fn record_uploaded<S: ?Sized + Interruptee>(
     }
 
     // Copy staging into the mirror, then kill staging, and local tombstones.
-    conn.execute_batch(
+    tx.execute_batch(
         "
-        REPLACE INTO moz_extension_data_mirror (guid, ext_id, server_modified, data)
-        SELECT guid, ext_id, server_modified, data FROM temp.moz_extension_data_staging;
+        REPLACE INTO storage_sync_mirror (guid, ext_id, server_modified, data)
+        SELECT guid, ext_id, server_modified, data FROM temp.storage_sync_staging;
 
-        DELETE FROM temp.moz_extension_data_staging;
+        DELETE FROM temp.storage_sync_staging;
 
-        DELETE from moz_extension_data WHERE data IS NULL;",
+        DELETE from storage_sync_data WHERE data IS NULL;",
     )?;
 
     // And the stuff that was uploaded should be placed in the mirror.
     // XXX - server_modified is wrong here - do we even need it in the schema?
     let sql = "
-        REPLACE INTO moz_extension_data_mirror (guid, ext_id, server_modified, data)
+        REPLACE INTO storage_sync_mirror (guid, ext_id, server_modified, data)
         VALUES (:guid, :ext_id, :server_modified, :data);
     ";
     for item in items.iter() {
         signal.err_if_interrupted()?;
-        conn.execute_named(
+        tx.execute_named(
             sql,
             rusqlite::named_params! {
                 ":guid": item.payload.guid,
@@ -137,9 +134,6 @@ pub fn record_uploaded<S: ?Sized + Interruptee>(
             },
         )?;
     }
-
-    log::debug!("record_uploaded committing");
-    tx.commit()?;
     Ok(())
 }
 
@@ -152,11 +146,12 @@ mod tests {
     #[test]
     fn test_simple() -> Result<()> {
         let db = new_mem_db();
-        let conn = db.writer.lock().unwrap();
+        let mut conn = db.writer.lock().unwrap();
+        let tx = conn.transaction()?;
 
-        conn.execute_batch(
+        tx.execute_batch(
             r#"
-            INSERT INTO moz_extension_data (ext_id, data, sync_change_counter)
+            INSERT INTO storage_sync_data (ext_id, data, sync_change_counter)
             VALUES
                 ('ext_no_changes', '{"foo":"bar"}', 0),
                 ('ext_with_changes', '{"foo":"bar"}', 1);
@@ -164,19 +159,19 @@ mod tests {
         "#,
         )?;
 
-        let changes = get_outgoing(&conn, &NeverInterrupts)?;
+        let changes = get_outgoing(&tx, &NeverInterrupts)?;
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].state.ext_id, "ext_with_changes".to_string());
 
-        record_uploaded(&conn, &changes, &NeverInterrupts)?;
+        record_uploaded(&tx, &changes, &NeverInterrupts)?;
 
         // let (counter, status): (i32, u8) = conn.query_row_and_then::<(i32, u8), _, _, _>(
-        //     "SELECT sync_change_counter, sync_status FROM moz_extension_data WHERE ext_id = 'ext_with_changes'",
+        //     "SELECT sync_change_counter, sync_status FROM storage_sync_data WHERE ext_id = 'ext_with_changes'",
         //     NO_PARAMS,
         //     |row| Ok((row.get::<_, i32>(0)?, row.get::<_, u8>(1)?)))?;
 
-        let counter: i32 = conn.conn().query_one(
-            "SELECT sync_change_counter FROM moz_extension_data WHERE ext_id = 'ext_with_changes'",
+        let counter: i32 = tx.conn().query_one(
+            "SELECT sync_change_counter FROM storage_sync_data WHERE ext_id = 'ext_with_changes'",
         )?;
         assert_eq!(counter, 0);
         Ok(())

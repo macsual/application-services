@@ -3,12 +3,12 @@
 -- file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 -- Temp tables which only need to be created on the write connection.
-CREATE TEMP TABLE moz_extension_data_staging (
+CREATE TEMP TABLE storage_sync_staging (
     guid TEXT PRIMARY KEY,
     /* The extension_id is explicitly not the GUID used on the server.
        We may end up making this a regular foreign-key relationship back to
-       moz_extension_data, although maybe not - the ext_id may not exist in
-       moz_extension_data at the time we populate this table.
+       storage_sync_data, although maybe not - the ext_id may not exist in
+       storage_sync_data at the time we populate this table.
        We can iterate here as we site up sync support.
     */
     ext_id TEXT NOT NULL UNIQUE,
