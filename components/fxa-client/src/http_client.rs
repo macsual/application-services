@@ -7,7 +7,7 @@ use rc_crypto::hawk::{Credentials, Key, PayloadHasher, RequestBuilder, SHA256};
 use rc_crypto::{digest, hkdf, hmac};
 use serde_derive::*;
 use serde_json::json;
-use std::collections::HashMap;
+use std::{cmp, collections::HashMap, time::SystemTime};
 use url::Url;
 use viaduct::{header_names, status_codes, Method, Request, Response};
 
@@ -91,6 +91,15 @@ pub trait FxAClient {
         update: DeviceUpdateRequest<'_>,
     ) -> Result<UpdateDeviceResponse>;
     fn destroy_device(&self, config: &Config, refresh_token: &str, id: &str) -> Result<()>;
+    fn attached_clients(&self, config: &Config, refresh_token: &str) -> Result<Vec<GetAttachedClientResponse>>;
+    fn destroy_attached_client(
+        &self,
+        config: &Config,
+        refresh_token: &str,
+        client_id: String,
+        session_token_id: String,
+        device_id: String,
+    ) -> Result<()>;
     fn scoped_key_data(
         &self,
         config: &Config,
@@ -340,6 +349,43 @@ impl FxAClient for Client {
             .body(body.to_string());
 
         Self::make_request(request)?;
+        Ok(())
+    }
+
+    fn attached_clients(&self, config: &Config, refresh_token: &str) -> Result<Vec<GetAttachedClientResponse>> {
+        let url = config.auth_url_path("v1/account/attached_clients")?;
+        let request =
+            Request::get(url).header(header_names::AUTHORIZATION, bearer_token(refresh_token))?;
+        let mut attached_clients: Vec<GetAttachedClientResponse> = Self::make_request(request)?.json()?;
+
+        for mut attached_client in &mut attached_clients {
+            match attached_client.last_access_time {
+                Some(last_access_time) => {
+                    let one_day = 24 * 60 * 60 * 1000;
+                    let now = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs_f64()
+                        .floor() as u64;
+                    let last_accessed: u64 = now - last_access_time;
+                    let days_ago: u64 = cmp::max(last_accessed / one_day, 0);
+                    attached_client.last_accessed_days_ago = Some(days_ago);
+                },
+                None => (),
+            }
+        }
+
+        Ok(attached_clients)
+    }
+
+    fn destroy_attached_client(
+        &self,
+        config: &Config,
+        refresh_token: &str,
+        client_id: String,
+        session_token_id: String,
+        device_id: String,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -657,6 +703,35 @@ pub struct DeviceResponseCommon {
     pub available_commands: HashMap<String, String>,
     #[serde(rename = "pushEndpointExpired")]
     pub push_endpoint_expired: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GetAttachedClientResponse {
+    #[serde(rename = "clientId")]
+    pub client_id: String,
+    #[serde(rename = "sessionTokenId")]
+    pub session_token_id: String,
+    #[serde(rename = "refreshTokenId")]
+    pub refresh_token_id: String,
+    #[serde(rename = "deviceId")]
+    pub device_id: String,
+    #[serde(rename = "deviceType")]
+    pub device_type: Option<DeviceType>,
+    #[serde(rename = "isCurrentSession")]
+    pub is_current_session: bool,
+    #[serde(rename = "name")]
+    pub display_name: Option<String>,
+    #[serde(rename = "createdTime")]
+    pub created_time: Option<u64>,
+    #[serde(rename = "lastAccessTime")]
+    pub last_access_time: Option<u64>,
+    #[serde(rename = "lastAccessedDaysAgo")]
+    pub last_accessed_days_ago: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Vec<String>>,
+    #[serde(rename = "userAgent")]
+    pub user_agent: String,
+    pub os: Option<String>,
 }
 
 // We model the OAuthTokenRequest according to the up to date
