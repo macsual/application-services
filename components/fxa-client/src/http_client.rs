@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::{config::Config, error::*, util};
+use crate::{config::Config, error::*};
 use hex;
 use rc_crypto::hawk::{Credentials, Key, PayloadHasher, RequestBuilder, SHA256};
 use rc_crypto::{digest, hkdf, hmac};
@@ -92,15 +92,19 @@ pub trait FxAClient {
         update: DeviceUpdateRequest<'_>,
     ) -> Result<UpdateDeviceResponse>;
     fn destroy_device(&self, config: &Config, refresh_token: &str, id: &str) -> Result<()>;
-    fn attached_clients(&self, config: &Config, refresh_token: &str) -> Result<Vec<GetAttachedClientResponse>>;
-    fn destroy_attached_client(
+    fn attached_clients(
         &self,
         config: &Config,
         refresh_token: &str,
-        client_id: Option<String>,
-        session_token_id: Option<String>,
-        device_id: Option<String>,
-    ) -> Result<()>;
+    ) -> Result<Vec<GetAttachedClientResponse>>;
+    // fn destroy_attached_client(
+    //     &self,
+    //     config: &Config,
+    //     refresh_token: &str,
+    //     client_id: Option<String>,
+    //     session_token_id: Option<String>,
+    //     device_id: Option<String>,
+    // ) -> Result<()>;
     fn scoped_key_data(
         &self,
         config: &Config,
@@ -353,31 +357,27 @@ impl FxAClient for Client {
         Ok(())
     }
 
-    fn attached_clients(&self, config: &Config, refresh_token: &str) -> Result<Vec<GetAttachedClientResponse>> {
-        let url = config.auth_url_path("v1/account/attached_clients")?;
-        let request = Request::get(url)
-            .header(header_names::AUTHORIZATION, bearer_token(refresh_token))?;
-        let mut attached_clients: Vec<GetAttachedClientResponse> = Self::make_request(request)?.json()?;
-
-        for mut attached_client in &mut attached_clients {
-            if let Some(t) = attached_client.last_access_time {
-                attached_client.last_accessed_days_ago = Some(util::get_days_ago(t));
-            }
-        }
-
-        Ok(attached_clients)
-    }
-
-    fn destroy_attached_client(
+    fn attached_clients(
         &self,
         config: &Config,
         refresh_token: &str,
-        client_id: Option<String>,
-        session_token_id: Option<String>,
-        device_id: Option<String>,
-    ) -> Result<()> {
-        Ok(())
+    ) -> Result<Vec<GetAttachedClientResponse>> {
+        let url = config.auth_url_path("v1/account/attached_clients")?;
+        let request =
+            Request::get(url).header(header_names::AUTHORIZATION, bearer_token(refresh_token))?;
+        Ok(Self::make_request(request)?.json()?)
     }
+
+    // fn destroy_attached_client(
+    //     &self,
+    //     config: &Config,
+    //     refresh_token: &str,
+    //     client_id: Option<String>,
+    //     session_token_id: Option<String>,
+    //     device_id: Option<String>,
+    // ) -> Result<()> {
+    //     Ok(())
+    // }
 
     fn scoped_key_data(
         &self,
@@ -708,7 +708,6 @@ pub struct GetAttachedClientResponse {
     pub created_time: Option<u64>,
     pub last_access_time: Option<u64>,
     pub last_accessed_days_ago: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<Vec<String>>,
     pub user_agent: String,
     pub os: Option<String>,
