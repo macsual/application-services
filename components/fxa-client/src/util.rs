@@ -4,7 +4,7 @@
 
 use crate::error::*;
 use rc_crypto::rand;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{cmp, time::{SystemTime, UNIX_EPOCH}};
 
 // Gets the unix epoch in ms.
 pub fn now() -> u64 {
@@ -21,10 +21,25 @@ pub fn now_secs() -> u64 {
     since_epoch.as_secs()
 }
 
+pub fn now_secs_f64() -> f64 {
+    let since_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Something is very wrong.");
+    since_epoch.as_secs_f64()
+}
+
 pub fn random_base64_url_string(len: usize) -> Result<String> {
     let mut out = vec![0u8; len];
     rand::fill(&mut out).map_err(|_| ErrorKind::RngFailure)?;
     Ok(base64::encode_config(&out, base64::URL_SAFE_NO_PAD))
+}
+
+pub fn get_days_ago(given_time: u64) -> u64 {
+    let one_day = 24 * 60 * 60 * 1000;
+    let now = now_secs_f64()
+        .floor() as u64;
+    let last_accessed: u64 = now - given_time;
+    cmp::max(last_accessed / one_day, 0)
 }
 
 pub trait Xorable {

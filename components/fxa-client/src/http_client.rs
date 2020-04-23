@@ -2,12 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::{config::Config, error::*};
+use crate::{config::Config, error::*, util};
+use hex;
 use rc_crypto::hawk::{Credentials, Key, PayloadHasher, RequestBuilder, SHA256};
 use rc_crypto::{digest, hkdf, hmac};
 use serde_derive::*;
 use serde_json::json;
-use std::{cmp, collections::HashMap, time::SystemTime};
+use std::collections::HashMap;
 use url::Url;
 use viaduct::{header_names, status_codes, Method, Request, Response};
 
@@ -96,9 +97,9 @@ pub trait FxAClient {
         &self,
         config: &Config,
         refresh_token: &str,
-        client_id: String,
-        session_token_id: String,
-        device_id: String,
+        client_id: Option<String>,
+        session_token_id: Option<String>,
+        device_id: Option<String>,
     ) -> Result<()>;
     fn scoped_key_data(
         &self,
@@ -354,24 +355,13 @@ impl FxAClient for Client {
 
     fn attached_clients(&self, config: &Config, refresh_token: &str) -> Result<Vec<GetAttachedClientResponse>> {
         let url = config.auth_url_path("v1/account/attached_clients")?;
-        let request =
-            Request::get(url).header(header_names::AUTHORIZATION, bearer_token(refresh_token))?;
+        let request = Request::get(url)
+            .header(header_names::AUTHORIZATION, bearer_token(refresh_token))?;
         let mut attached_clients: Vec<GetAttachedClientResponse> = Self::make_request(request)?.json()?;
 
         for mut attached_client in &mut attached_clients {
-            match attached_client.last_access_time {
-                Some(last_access_time) => {
-                    let one_day = 24 * 60 * 60 * 1000;
-                    let now = SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs_f64()
-                        .floor() as u64;
-                    let last_accessed: u64 = now - last_access_time;
-                    let days_ago: u64 = cmp::max(last_accessed / one_day, 0);
-                    attached_client.last_accessed_days_ago = Some(days_ago);
-                },
-                None => (),
+            if let Some(t) = attached_client.last_access_time {
+                attached_client.last_accessed_days_ago = Some(util::get_days_ago(t));
             }
         }
 
@@ -382,9 +372,9 @@ impl FxAClient for Client {
         &self,
         config: &Config,
         refresh_token: &str,
-        client_id: String,
-        session_token_id: String,
-        device_id: String,
+        client_id: Option<String>,
+        session_token_id: Option<String>,
+        device_id: Option<String>,
     ) -> Result<()> {
         Ok(())
     }
@@ -708,10 +698,10 @@ pub struct DeviceResponseCommon {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetAttachedClientResponse {
-    pub client_id: String,
-    pub session_token_id: String,
-    pub refresh_token_id: String,
-    pub device_id: String,
+    pub client_id: Option<String>,
+    pub session_token_id: Option<String>,
+    pub refresh_token_id: Option<String>,
+    pub device_id: Option<String>,
     pub device_type: Option<DeviceType>,
     pub is_current_session: bool,
     pub name: Option<String>,
