@@ -706,30 +706,20 @@ pub struct DeviceResponseCommon {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetAttachedClientResponse {
-    #[serde(rename = "clientId")]
     pub client_id: String,
-    #[serde(rename = "sessionTokenId")]
     pub session_token_id: String,
-    #[serde(rename = "refreshTokenId")]
     pub refresh_token_id: String,
-    #[serde(rename = "deviceId")]
     pub device_id: String,
-    #[serde(rename = "deviceType")]
     pub device_type: Option<DeviceType>,
-    #[serde(rename = "isCurrentSession")]
     pub is_current_session: bool,
-    #[serde(rename = "name")]
-    pub display_name: Option<String>,
-    #[serde(rename = "createdTime")]
+    pub name: Option<String>,
     pub created_time: Option<u64>,
-    #[serde(rename = "lastAccessTime")]
     pub last_access_time: Option<u64>,
-    #[serde(rename = "lastAccessedDaysAgo")]
     pub last_accessed_days_ago: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<Vec<String>>,
-    #[serde(rename = "userAgent")]
     pub user_agent: String,
     pub os: Option<String>,
 }
