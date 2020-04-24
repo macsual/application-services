@@ -5,7 +5,7 @@
 // The "incoming" part of syncing - handling the incoming rows, staging them,
 // working out a plan for them, updating the local data and mirror, etc.
 
-use interrupt::Interruptee;
+use interrupt_support::Interruptee;
 use rusqlite::{types::ToSql, Connection, Row, Transaction};
 use serde_json;
 use sql_support::ConnExt;
@@ -291,7 +291,7 @@ mod tests {
     use super::*;
     use crate::api;
     use crate::db::test::new_mem_db;
-    use interrupt::NeverInterrupts;
+    use interrupt_support::NeverInterrupts;
     use rusqlite::NO_PARAMS;
     use serde_json::{json, Value};
 

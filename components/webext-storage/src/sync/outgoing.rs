@@ -5,7 +5,7 @@
 // The "outgoing" part of syncing - building the payloads to upload and
 // managing the sync state of the local DB.
 
-use interrupt::Interruptee;
+use interrupt_support::Interruptee;
 use rusqlite::{Connection, Row, Transaction};
 use sql_support::ConnExt;
 use sync15_traits::ServerTimestamp;
@@ -145,7 +145,7 @@ pub fn record_uploaded<S: ?Sized + Interruptee>(
 mod tests {
     use super::*;
     use crate::db::test::new_mem_db;
-    use interrupt::NeverInterrupts;
+    use interrupt_support::NeverInterrupts;
 
     #[test]
     fn test_simple() -> Result<()> {

@@ -12,7 +12,7 @@ use crate::error::*;
 use crate::sync::incoming::{apply_actions, get_incoming, plan_incoming, stage_incoming};
 use crate::sync::outgoing::{get_outgoing, record_uploaded, OutgoingInfo};
 use crate::sync::ServerPayload;
-use interrupt::NeverInterrupts;
+use interrupt_support::NeverInterrupts;
 use rusqlite::{Connection, Row, Transaction};
 use serde_json::json;
 use sql_support::ConnExt;

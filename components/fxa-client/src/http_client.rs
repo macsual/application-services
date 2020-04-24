@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use crate::{config::Config, error::*};
-use hex;
 use rc_crypto::hawk::{Credentials, Key, PayloadHasher, RequestBuilder, SHA256};
 use rc_crypto::{digest, hkdf, hmac};
 use serde_derive::*;
@@ -507,7 +506,7 @@ pub struct CommandData {
     pub sender: Option<String>,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PushSubscription {
     #[serde(rename = "pushCallback")]
     pub endpoint: String,
@@ -540,7 +539,7 @@ pub struct DeviceUpdateRequest<'a> {
     available_commands: Option<Option<&'a HashMap<String, String>>>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DeviceType {
     #[serde(rename = "desktop")]
     Desktop,
@@ -616,7 +615,7 @@ impl<'a> DeviceUpdateRequestBuilder<'a> {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeviceLocation {
     pub city: Option<String>,
     pub country: Option<String>,
@@ -625,7 +624,7 @@ pub struct DeviceLocation {
     pub state_code: Option<String>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GetDeviceResponse {
     #[serde(flatten)]
     pub common: DeviceResponseCommon,
@@ -645,7 +644,7 @@ impl std::ops::Deref for GetDeviceResponse {
 
 pub type UpdateDeviceResponse = DeviceResponseCommon;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeviceResponseCommon {
     pub id: String,
     #[serde(rename = "name")]

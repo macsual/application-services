@@ -1,3 +1,18 @@
+# v0.58.0 (_2020-04-22_)
+
+[Full Changelog](https://github.com/mozilla/application-services/compare/v0.57.0...v0.58.0)
+
+## General
+
+- Android: Gradle wrapper version upgraded to `6.3`, Android Gradle Plugin version upgraded to `3.6.0`. ([#2917](https://github.com/mozilla/application-services/pull/2917))
+- Android: Upgraded NDK from r20 to r21. ([#2985](https://github.com/mozilla/application-services/pull/2985))
+- iOS: Xcode version changed to 11.4.1 from 11.4.0. ([#2996](https://github.com/mozilla/application-services/pull/2996))
+
+## FxA Client
+
+- iOS: `refreshProfile` now takes an optional boolean argument `forceRefresh` to force a network request to be made in every case ([#3000](https://github.com/mozilla/application-services/pull/3000))
+- Added an optional `ttl` parameter to `getAccessToken` to limit the lifetime of the token. ([#2896](https://github.com/mozilla/application-services/pull/2896))
+
 # v0.57.0 (_2020-03-31_)
 
 [Full Changelog](https://github.com/mozilla/application-services/compare/v0.56.0...v0.57.0)
@@ -45,6 +60,30 @@ Please call `Viaduct.shared.useReqwestBackend()` as soon as possible before usin
 ### Breaking changes
 
 - `Server.dev` is now `Server.stage` to reflect better the FxA server instance it points to. ([#2830](https://github.com/mozilla/application-services/pull/2830)).
+
+# v0.55.3 (_2020-04-16_)
+
+[Full Changelog](https://github.com/mozilla/application-services/compare/v0.55.2...v0.55.3)
+
+## Places
+
+- Fix table name for history migration
+
+# v0.55.2 (_2020-04-14_)
+
+[Full Changelog](https://github.com/mozilla/application-services/compare/v0.55.1...v0.55.2)
+
+## Places
+
+- Android: Fennec's bookmarks db version supported by the migrations is now the same as that of history
+
+# v0.55.1 (_2020-04-14_)
+
+[Full Changelog](https://github.com/mozilla/application-services/compare/v0.55.0...v0.55.1)
+
+## Places
+
+- Android: Fennec migrations for history and bookmarks now support Fennec database versions 34 and 23, respectively. ([#2949](https://github.com/mozilla/application-services/pull/2949))
 
 # v0.55.0 (_2020-03-16_)
 
