@@ -2,8 +2,10 @@
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
--- Temp tables which only need to be created on the write connection.
-CREATE TEMP TABLE storage_sync_staging (
+-- Temp tables used by Sync.
+-- Note that this is execute both before and after a sync.
+
+CREATE TEMP TABLE IF NOT EXISTS storage_sync_staging (
     guid TEXT PRIMARY KEY,
 
     /* The extension_id is explicitly not the GUID used on the server.
@@ -22,3 +24,5 @@ CREATE TEMP TABLE storage_sync_staging (
     /* The JSON payload. We *do* allow NULL here - it means "deleted" */
     data TEXT
 ) WITHOUT ROWID;
+
+DELETE FROM temp.storage_sync_staging;

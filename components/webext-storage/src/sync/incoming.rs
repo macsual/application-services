@@ -288,9 +288,9 @@ pub fn apply_actions<S: ?Sized + Interruptee>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test::new_syncable_mem_db;
     use super::*;
     use crate::api;
-    use crate::db::test::new_mem_db;
     use interrupt_support::NeverInterrupts;
     use rusqlite::NO_PARAMS;
     use serde_json::{json, Value};
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn test_incoming_populates_staging() -> Result<()> {
-        let db = new_mem_db();
+        let db = new_syncable_mem_db();
         let mut conn = db.writer.lock().unwrap();
         let tx = conn.transaction()?;
 
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_fetch_incoming_state() -> Result<()> {
-        let db = new_mem_db();
+        let db = new_syncable_mem_db();
         let mut conn = db.writer.lock().unwrap();
         let tx = conn.transaction()?;
 
@@ -408,7 +408,7 @@ mod tests {
     // Like test_fetch_incoming_state, but check NULLs are handled correctly.
     #[test]
     fn test_fetch_incoming_state_nulls() -> Result<()> {
-        let db = new_mem_db();
+        let db = new_syncable_mem_db();
         let mut conn = db.writer.lock().unwrap();
         let tx = conn.transaction()?;
 

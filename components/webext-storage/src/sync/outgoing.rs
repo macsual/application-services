@@ -143,13 +143,13 @@ pub fn record_uploaded<S: ?Sized + Interruptee>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test::new_syncable_mem_db;
     use super::*;
-    use crate::db::test::new_mem_db;
     use interrupt_support::NeverInterrupts;
 
     #[test]
     fn test_simple() -> Result<()> {
-        let db = new_mem_db();
+        let db = new_syncable_mem_db();
         let mut conn = db.writer.lock().unwrap();
         let tx = conn.transaction()?;
 

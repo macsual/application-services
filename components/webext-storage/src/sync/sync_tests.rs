@@ -7,10 +7,10 @@
 // state (including the mirror) as a result.
 
 use crate::api::{clear, get, set};
-use crate::db::test::new_mem_db;
 use crate::error::*;
 use crate::sync::incoming::{apply_actions, get_incoming, plan_incoming, stage_incoming};
 use crate::sync::outgoing::{get_outgoing, record_uploaded, OutgoingInfo};
+use crate::sync::test::new_syncable_mem_db;
 use crate::sync::ServerPayload;
 use interrupt_support::NeverInterrupts;
 use rusqlite::{Connection, Row, Transaction};
@@ -103,7 +103,7 @@ fn get_local_data(conn: &Connection, expected_extid: &str) -> DbData {
 #[test]
 fn test_simple_outgoing_sync() -> Result<()> {
     // So we are starting with an empty local store and empty server store.
-    let db = new_mem_db();
+    let db = new_syncable_mem_db();
     let mut conn = db.writer.lock().unwrap();
     let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value", "key2": "key2-value"});
@@ -117,7 +117,7 @@ fn test_simple_outgoing_sync() -> Result<()> {
 fn test_simple_tombstone() -> Result<()> {
     // Tombstones are only kept when the mirror has that record - so first
     // test that, then arrange for the mirror to have the record.
-    let db = new_mem_db();
+    let db = new_syncable_mem_db();
     let mut conn = db.writer.lock().unwrap();
     let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value", "key2": "key2-value"});
@@ -146,7 +146,7 @@ fn test_simple_tombstone() -> Result<()> {
 
 #[test]
 fn test_merged() -> Result<()> {
-    let db = new_mem_db();
+    let db = new_syncable_mem_db();
     let mut conn = db.writer.lock().unwrap();
     let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value"});
@@ -170,7 +170,7 @@ fn test_merged() -> Result<()> {
 
 #[test]
 fn test_reconciled() -> Result<()> {
-    let db = new_mem_db();
+    let db = new_syncable_mem_db();
     let mut conn = db.writer.lock().unwrap();
     let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value"});
@@ -191,7 +191,7 @@ fn test_reconciled() -> Result<()> {
 
 #[test]
 fn test_conflicting_incoming() -> Result<()> {
-    let db = new_mem_db();
+    let db = new_syncable_mem_db();
     let mut conn = db.writer.lock().unwrap();
     let tx = conn.transaction()?;
     let data = json!({"key1": "key1-value", "key2": "key2-value"});

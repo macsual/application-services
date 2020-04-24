@@ -18,7 +18,7 @@ use sql_support::ConnExt;
 const VERSION: i64 = 1; // let's avoid bumping this and migrating for now!
 
 const CREATE_SCHEMA_SQL: &str = include_str!("../sql/create_schema.sql");
-const CREATE_TEMP_TABLES_SQL: &str = include_str!("../sql/create_temp_tables.sql");
+const CREATE_SYNC_TEMP_TABLES_SQL: &str = include_str!("../sql/create_sync_temp_tables.sql");
 
 fn get_current_schema_version(db: &Connection) -> Result<i64> {
     Ok(db.query_one::<i64>("PRAGMA user_version")?)
@@ -45,7 +45,6 @@ pub fn init(db: &Connection) -> Result<()> {
         }
         create(db)?;
     }
-    create_temp_tables(db)?;
     Ok(())
 }
 
@@ -60,9 +59,12 @@ fn create(db: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn create_temp_tables(db: &Connection) -> Result<()> {
-    log::debug!("Creating temp tables");
-    db.execute_batch(CREATE_TEMP_TABLES_SQL)?;
+// Note that we expect this to be called before and after a sync - before to
+// ensure we are syncing with a clean state, after to be good memory citizens
+// given the temp tables are in memory.
+pub fn create_empty_sync_temp_tables(db: &Connection) -> Result<()> {
+    log::debug!("Initializing sync temp tables");
+    db.execute_batch(CREATE_SYNC_TEMP_TABLES_SQL)?;
     Ok(())
 }
 
@@ -113,5 +115,39 @@ mod tests {
         let conn = db.writer.lock().unwrap();
         conn.execute_batch(CREATE_SCHEMA_SQL)
             .expect("should allow running twice");
+    }
+
+    #[test]
+    fn test_create_empty_sync_temp_tables_twice() {
+        let db = new_mem_db();
+        let conn = db.writer.lock().unwrap();
+        create_empty_sync_temp_tables(&conn).expect("should work first time");
+        // insert something into our new temp table and check it's there.
+        conn.execute_batch(
+            "INSERT INTO temp.storage_sync_staging
+                            (guid, ext_id, server_modified) VALUES
+                            ('guid', 'ext_id', 1);",
+        )
+        .expect("should work once");
+        let count = conn
+            .query_row_and_then(
+                "SELECT COUNT(*) FROM temp.storage_sync_staging;",
+                rusqlite::NO_PARAMS,
+                |row| row.get::<_, u32>(0),
+            )
+            .expect("query should work");
+        assert_eq!(count, 1, "should be one row");
+
+        // re-execute
+        create_empty_sync_temp_tables(&conn).expect("should second first time");
+        // and it should have deleted existing data.
+        let count = conn
+            .query_row_and_then(
+                "SELECT COUNT(*) FROM temp.storage_sync_staging;",
+                rusqlite::NO_PARAMS,
+                |row| row.get::<_, u32>(0),
+            )
+            .expect("query should work");
+        assert_eq!(count, 0, "should be no rows");
     }
 }

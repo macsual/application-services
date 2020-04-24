@@ -93,6 +93,24 @@ fn merge(other: JsonMap, mut ours: JsonMap, parent: Option<JsonMap>) -> Incoming
     IncomingAction::Merge { data: ours }
 }
 
+// Helpers for tests
+#[cfg(test)]
+pub mod test {
+    use crate::db::{test::new_mem_db, StorageDb};
+    use crate::schema::create_empty_sync_temp_tables;
+
+    pub fn new_syncable_mem_db() -> StorageDb {
+        let _ = env_logger::try_init();
+        let db = new_mem_db();
+        {
+            // scope to kill `conn`
+            let conn = db.writer.lock().unwrap();
+            create_empty_sync_temp_tables(&conn).expect("should work");
+        }
+        db
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
