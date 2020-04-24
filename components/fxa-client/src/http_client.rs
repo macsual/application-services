@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use crate::{config::Config, error::*};
-use hex;
 use rc_crypto::hawk::{Credentials, Key, PayloadHasher, RequestBuilder, SHA256};
 use rc_crypto::{digest, hkdf, hmac};
 use serde_derive::*;
@@ -97,14 +96,14 @@ pub trait FxAClient {
         config: &Config,
         refresh_token: &str,
     ) -> Result<ResponseAndETag<Vec<GetAttachedClientResponse>>>;
-    // fn destroy_attached_client(
-    //     &self,
-    //     config: &Config,
-    //     refresh_token: &str,
-    //     client_id: Option<String>,
-    //     session_token_id: Option<String>,
-    //     device_id: Option<String>,
-    // ) -> Result<()>;
+    fn destroy_attached_client(
+        &self,
+        config: &Config,
+        refresh_token: &str,
+        client_id: &str,
+        session_token_id: Option<String>,
+        device_id: Option<String>,
+    ) -> Result<()>;
     fn scoped_key_data(
         &self,
         config: &Config,
@@ -377,16 +376,33 @@ impl FxAClient for Client {
         })
     }
 
-    // fn destroy_attached_client(
-    //     &self,
-    //     config: &Config,
-    //     refresh_token: &str,
-    //     client_id: Option<String>,
-    //     session_token_id: Option<String>,
-    //     device_id: Option<String>,
-    // ) -> Result<()> {
-    //     Ok(())
-    // }
+    fn destroy_attached_client(
+        &self,
+        config: &Config,
+        refresh_token: &str,
+        client_id: &str,
+        session_token_id: Option<String>,
+        device_id: Option<String>,
+    ) -> Result<()> {
+        let mut body = json!({
+            "clientId": client_id,
+            "refreshTokenId": refresh_token,
+        });
+        if let Some(s) = session_token_id {
+            body["sessionTokenId"] = json!(s);
+        }
+        if let Some(d) = device_id {
+            body["deviceId"] = json!(d);
+        }
+        let url = config.auth_url_path("v1/account/attached_client/destroy")?;
+        let request = Request::post(url)
+            .header(header_names::AUTHORIZATION, bearer_token(refresh_token))?
+            .header(header_names::CONTENT_TYPE, "application/json")?
+            .body(body.to_string());
+
+        Self::make_request(request)?;
+        Ok(())
+    }
 
     fn scoped_key_data(
         &self,

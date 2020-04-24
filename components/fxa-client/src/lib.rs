@@ -26,9 +26,9 @@ use std::{
 };
 use url::Url;
 
+pub mod attached_client;
 mod commands;
 mod config;
-pub mod attached_client;
 pub mod device;
 pub mod error;
 pub mod ffi;
