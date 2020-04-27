@@ -15,15 +15,25 @@ use crate::error::*;
 
 use super::{merge, JsonMap, ServerPayload};
 
+/// The state data can be in. Could be represented as Option<JsonMap>, but this
+/// is clearer and independent of how the data is stored.
+#[derive(Debug, PartialEq)]
+pub enum DataState {
+    /// The data was deleted.
+    Deleted,
+    /// Data exists, as stored in the map.
+    Exists(JsonMap),
+}
+
 // This module deals exclusively with the Map inside a JsonValue::Object().
 // This helper reads such a Map from a SQL row, ignoring anything which is
 // either invalid JSON or a different JSON type.
-fn json_map_from_row(row: &Row<'_>, col: &str) -> Result<Option<JsonMap>> {
+fn json_map_from_row(row: &Row<'_>, col: &str) -> Result<DataState> {
     let s = row.get::<_, Option<String>>(col)?;
     Ok(match s {
-        None => None,
+        None => DataState::Deleted,
         Some(s) => match serde_json::from_str(&s) {
-            Ok(serde_json::Value::Object(m)) => Some(m),
+            Ok(serde_json::Value::Object(m)) => DataState::Exists(m),
             _ => {
                 // We don't want invalid json or wrong types to kill syncing.
                 // It should be impossible as we never write anything which
@@ -31,7 +41,7 @@ fn json_map_from_row(row: &Row<'_>, col: &str) -> Result<Option<JsonMap>> {
                 // might be PII. Logging just a message without any additional
                 // clues is going to be unhelpfully noisy, so, silently None.
                 // XXX - Maybe record telemetry?
-                None
+                DataState::Deleted
             }
         },
     })
@@ -80,21 +90,34 @@ pub struct IncomingItem {
 /// record. This "state" is the input to calculating the IncomingAction.
 #[derive(Debug, PartialEq)]
 pub enum IncomingState {
-    IncomingOnly {
-        incoming: Option<JsonMap>,
-    },
+    /// There's an incoming item, but data for that extension doesn't exist
+    /// either in our local data store or in the local mirror. IOW, this is the
+    /// very first time we've seen this extension.
+    IncomingOnly { incoming: DataState },
+    /// There's an incoming item and we have data for the same extension in
+    /// our local store - but not in our mirror. This should be relatively
+    /// uncoming as it means:
+    /// * Some other profile has recently installed an extension and synced.
+    /// * This profile has recently installed the same extension.
+    /// * This is the first sync for this profile since both those events
+    ///   happened.
     HasLocal {
-        incoming: Option<JsonMap>,
-        local: Option<JsonMap>,
+        incoming: DataState,
+        local: DataState,
     },
+    /// There's an incoming item and there's an item for the same extension in
+    /// the mirror. The addon probably doesn't exist locally, or if it does,
+    /// the last time we synced we synced the deletion of all data.
     NotLocal {
-        incoming: Option<JsonMap>,
-        mirror: Option<JsonMap>,
+        incoming: DataState,
+        mirror: DataState,
     },
+    /// This will be the most common "incoming" case - there's data incoming,
+    /// in the mirror and in the local store for an addon.
     Everywhere {
-        incoming: Option<JsonMap>,
-        mirror: Option<JsonMap>,
-        local: Option<JsonMap>,
+        incoming: DataState,
+        mirror: DataState,
+        local: DataState,
     },
 }
 
@@ -170,19 +193,19 @@ pub fn plan_incoming(s: IncomingState) -> IncomingAction {
         } => {
             // All records exist - but do they all have data?
             match (incoming, local, mirror) {
-                (Some(id), Some(ld), Some(md)) => {
+                (DataState::Exists(id), DataState::Exists(ld), DataState::Exists(md)) => {
                     // all records have data - 3-way merge.
                     merge(id, ld, Some(md))
                 }
-                (Some(id), Some(ld), None) => {
+                (DataState::Exists(id), DataState::Exists(ld), DataState::Deleted) => {
                     // No parent, so first time seeing this remotely - 2-way merge
                     merge(id, ld, None)
                 }
-                (Some(id), None, _) => {
+                (DataState::Exists(id), DataState::Deleted, _) => {
                     // Incoming data, removed locally. Server wins.
                     IncomingAction::TakeRemote { data: id }
                 }
-                (None, _, _) => {
+                (DataState::Deleted, _, _) => {
                     // Deleted remotely. Server wins.
                     // XXX - WRONG - we want to 3 way merge here still!
                     // Eg, final key removed remotely, different key added
@@ -196,22 +219,22 @@ pub fn plan_incoming(s: IncomingState) -> IncomingAction {
             // mirror record. This means some other device has synced this for
             // the first time and we are yet to do the same.
             match (incoming, local) {
-                (Some(id), Some(ld)) => {
+                (DataState::Exists(id), DataState::Exists(ld)) => {
                     // This means the extension exists locally and remotely
                     // but this is the first time we've synced it. That's no problem, it's
                     // just a 2-way merge...
                     merge(id, ld, None)
                 }
-                (Some(_), None) => {
+                (DataState::Exists(_), DataState::Deleted) => {
                     // We've data locally, but there's an incoming deletion.
                     // Remote wins.
                     IncomingAction::DeleteLocally
                 }
-                (None, Some(data)) => {
+                (DataState::Deleted, DataState::Exists(data)) => {
                     // No data locally, but some is incoming - take it.
                     IncomingAction::TakeRemote { data }
                 }
-                (None, None) => {
+                (DataState::Deleted, DataState::Deleted) => {
                     // Nothing anywhere - odd, but OK.
                     IncomingAction::Same
                 }
@@ -222,16 +245,16 @@ pub fn plan_incoming(s: IncomingState) -> IncomingAction {
             // This means a local deletion is being replaced by, or just re-doing
             // the incoming record.
             match incoming {
-                Some(data) => IncomingAction::TakeRemote { data },
-                None => IncomingAction::Same,
+                DataState::Exists(data) => IncomingAction::TakeRemote { data },
+                DataState::Deleted => IncomingAction::Same,
             }
         }
         IncomingState::IncomingOnly { incoming } => {
             // Only the staging record exists - this means it's the first time
             // we've ever seen it. No conflict possible, just take the remote.
             match incoming {
-                Some(data) => IncomingAction::TakeRemote { data },
-                None => IncomingAction::DeleteLocally,
+                DataState::Exists(data) => IncomingAction::TakeRemote { data },
+                DataState::Deleted => IncomingAction::DeleteLocally,
             }
         }
     }
@@ -374,7 +397,7 @@ mod tests {
         assert_eq!(
             incoming[0].1,
             IncomingState::IncomingOnly {
-                incoming: Some(map!({"foo": "bar"})),
+                incoming: DataState::Exists(map!({"foo": "bar"})),
             }
         );
 
@@ -391,8 +414,8 @@ mod tests {
         assert_eq!(
             incoming[0].1,
             IncomingState::NotLocal {
-                incoming: Some(map!({"foo": "bar"})),
-                mirror: Some(map!({"foo": "new"})),
+                incoming: DataState::Exists(map!({"foo": "bar"})),
+                mirror: DataState::Exists(map!({"foo": "new"})),
             }
         );
 
@@ -403,9 +426,9 @@ mod tests {
         assert_eq!(
             incoming[0].1,
             IncomingState::Everywhere {
-                incoming: Some(map!({"foo": "bar"})),
-                local: Some(map!({"foo": "local"})),
-                mirror: Some(map!({"foo": "new"})),
+                incoming: DataState::Exists(map!({"foo": "bar"})),
+                local: DataState::Exists(map!({"foo": "local"})),
+                mirror: DataState::Exists(map!({"foo": "new"})),
             }
         );
         Ok(())
@@ -431,7 +454,9 @@ mod tests {
         assert_eq!(incoming.len(), 1);
         assert_eq!(
             incoming[0].1,
-            IncomingState::IncomingOnly { incoming: None }
+            IncomingState::IncomingOnly {
+                incoming: DataState::Deleted
+            }
         );
 
         // Add the same item to the mirror.
@@ -447,8 +472,8 @@ mod tests {
         assert_eq!(
             incoming[0].1,
             IncomingState::NotLocal {
-                incoming: None,
-                mirror: None,
+                incoming: DataState::Deleted,
+                mirror: DataState::Deleted,
             }
         );
 
@@ -464,9 +489,9 @@ mod tests {
         assert_eq!(
             incoming[0].1,
             IncomingState::Everywhere {
-                incoming: None,
-                local: None,
-                mirror: None,
+                incoming: DataState::Deleted,
+                local: DataState::Deleted,
+                mirror: DataState::Deleted,
             }
         );
         Ok(())
