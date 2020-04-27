@@ -95,7 +95,7 @@ pub trait FxAClient {
         &self,
         config: &Config,
         refresh_token: &str,
-    ) -> Result<ResponseAndETag<Vec<GetAttachedClientResponse>>>;
+    ) -> Result<Vec<GetAttachedClientResponse>>;
     fn destroy_attached_client(
         &self,
         config: &Config,
@@ -360,20 +360,11 @@ impl FxAClient for Client {
         &self,
         config: &Config,
         refresh_token: &str,
-    ) -> Result<ResponseAndETag<Vec<GetAttachedClientResponse>>> {
+    ) -> Result<Vec<GetAttachedClientResponse>> {
         let url = config.auth_url_path("v1/account/attached_clients")?;
         let request =
             Request::get(url).header(header_names::AUTHORIZATION, bearer_token(refresh_token))?;
-        let resp = Self::make_request(request)?;
-        let attached_clients: Vec<GetAttachedClientResponse> = resp.json()?;
-        let etag = resp
-            .headers
-            .get(header_names::ETAG)
-            .map(ToString::to_string);
-        Ok(ResponseAndETag {
-            etag,
-            response: attached_clients,
-        })
+        Ok(Self::make_request(request)?.json()?)
     }
 
     fn destroy_attached_client(

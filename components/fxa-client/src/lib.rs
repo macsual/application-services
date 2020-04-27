@@ -579,23 +579,20 @@ mod tests {
                 token.partial_eq("refreshtok")
             })
             .times(1)
-            .returns_once(Ok(http_client::ResponseAndETag {
-                response: vec![AttachedClient {
-                    client_id: Some("12345678".into()),
-                    session_token_id: None,
-                    refresh_token_id: Some("refreshtok".into()),
-                    device_id: None,
-                    device_type: Some(http_client::DeviceType::Desktop),
-                    is_current_session: true,
-                    name: None,
-                    created_time: None,
-                    last_access_time: None,
-                    scope: None,
-                    user_agent: "attachedClientsUserAgent".into(),
-                    os: None,
-                }],
-                etag: Some("attachedClientsETag".into()),
-            }));
+            .returns_once(Ok(vec![AttachedClient {
+                client_id: Some("12345678".into()),
+                session_token_id: None,
+                refresh_token_id: Some("refreshtok".into()),
+                device_id: None,
+                device_type: Some(http_client::DeviceType::Desktop),
+                is_current_session: true,
+                name: None,
+                created_time: None,
+                last_access_time: None,
+                scope: None,
+                user_agent: "attachedClientsUserAgent".into(),
+                os: None,
+            }]));
 
         fxa.set_client(Arc::new(client));
         assert!(fxa.attached_clients_cache.is_none());
@@ -608,7 +605,6 @@ mod tests {
         let cached_attached_clients_res = fxa.attached_clients_cache.unwrap();
         assert!(!cached_attached_clients_res.response.is_empty());
         assert!(cached_attached_clients_res.cached_at > 0);
-        assert_eq!(cached_attached_clients_res.etag, "attachedClientsETag");
 
         let cached_attached_client = &cached_attached_clients_res.response[0];
         assert_eq!(

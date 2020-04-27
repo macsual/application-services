@@ -19,15 +19,14 @@ impl FirefoxAccount {
         let response = self
             .client
             .attached_clients(&self.state.config, &refresh_token)?;
-        let attached_clients = response.response;
 
         self.attached_clients_cache = Some(CachedResponse {
-            response: attached_clients.clone(),
+            response: response.clone(),
             cached_at: util::now(),
-            etag: response.etag.unwrap_or_default(),
+            etag: "".into(),
         });
 
-        Ok(attached_clients)
+        Ok(response)
     }
 
     pub fn destroy_attached_client(
@@ -37,14 +36,12 @@ impl FirefoxAccount {
         device_id: Option<String>,
     ) -> Result<()> {
         let refresh_token = self.get_refresh_token()?;
-        self
-            .client
-            .destroy_attached_client(
-                &self.state.config,
-                &refresh_token,
-                client_id,
-                session_token_id,
-                device_id,
-            )
+        self.client.destroy_attached_client(
+            &self.state.config,
+            &refresh_token,
+            client_id,
+            session_token_id,
+            device_id,
+        )
     }
 }
