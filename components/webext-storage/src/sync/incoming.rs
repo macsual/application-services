@@ -39,10 +39,10 @@ fn json_map_from_row(row: &Row<'_>, col: &str) -> Result<Option<JsonMap>> {
 
 /// The first thing we do with incoming items is to "stage" them in a temp table.
 /// The actual processing is done via this table.
-pub fn stage_incoming<S: ?Sized + Interruptee>(
+pub fn stage_incoming(
     tx: &Transaction<'_>,
     incoming_bsos: Vec<ServerPayload>,
-    signal: &S,
+    signal: &dyn Interruptee,
 ) -> Result<()> {
     sql_support::each_sized_chunk(
         &incoming_bsos,
@@ -179,7 +179,7 @@ pub fn plan_incoming(s: IncomingState) -> IncomingAction {
                     merge(id, ld, None)
                 }
                 (Some(id), None, _) => {
-                    // Local Incoming data, removed locally. Server wins.
+                    // Incoming data, removed locally. Server wins.
                     IncomingAction::TakeRemote { data: id }
                 }
                 (None, _, _) => {
@@ -238,10 +238,10 @@ pub fn plan_incoming(s: IncomingState) -> IncomingAction {
 }
 
 // Apply the actions necessary to fully process the incoming items.
-pub fn apply_actions<S: ?Sized + Interruptee>(
+pub fn apply_actions(
     tx: &Transaction<'_>,
     actions: Vec<(IncomingItem, IncomingAction)>,
-    signal: &S,
+    signal: &dyn Interruptee,
 ) -> Result<()> {
     for (item, action) in actions {
         signal.err_if_interrupted()?;

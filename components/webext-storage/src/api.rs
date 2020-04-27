@@ -47,14 +47,15 @@ fn save_to_db(tx: &Transaction<'_>, ext_id: &str, val: &JsonValue) -> Result<()>
         _ => false,
     };
     if is_delete {
-        let in_mirror = tx.query_row_and_then_named(
-            "SELECT EXISTS(SELECT 1 FROM storage_sync_mirror WHERE ext_id = :ext_id);",
-            rusqlite::named_params! {
-                ":ext_id": ext_id,
-            },
-            |row| row.get::<_, bool>(0),
-            true,
-        )?;
+        let in_mirror = tx
+            .try_query_one(
+                "SELECT EXISTS(SELECT 1 FROM storage_sync_mirror WHERE ext_id = :ext_id);",
+                rusqlite::named_params! {
+                    ":ext_id": ext_id,
+                },
+                true,
+            )?
+            .unwrap_or_default();
         if in_mirror {
             log::trace!("saving data for '{}': leaving a tombstone", ext_id);
             tx.execute_named_cached(

@@ -50,19 +50,19 @@ fn merge(other: JsonMap, mut ours: JsonMap, parent: Option<JsonMap>) -> Incoming
     }
     // Server wins. Iterate over incoming - if incoming and the parent are
     // identical, then we will take our local value.
-    for (k, iv) in other.into_iter() {
-        let vour = ours.get(&k);
-        match vour {
-            Some(vour) => {
-                if *vour != iv {
+    for (key, incoming_value) in other.into_iter() {
+        let our_value = ours.get(&key);
+        match our_value {
+            Some(our_value) => {
+                if *our_value != incoming_value {
                     // So we have a discrepency between 'ours' and 'other' - use parent
                     // to resolve.
                     let can_take_local = match parent {
                         Some(ref pm) => {
-                            if let Some(pv) = pm.get(&k) {
+                            if let Some(pv) = pm.get(&key) {
                                 // parent has a value - we can only take our local
                                 // value if the parent and incoming have the same.
-                                *pv == iv
+                                *pv == incoming_value
                             } else {
                                 // Value doesn't exist in the parent - can't take local
                                 false
@@ -75,18 +75,18 @@ fn merge(other: JsonMap, mut ours: JsonMap, parent: Option<JsonMap>) -> Incoming
                         }
                     };
                     if can_take_local {
-                        log::trace!("merge: no remote change in key {} - taking local", k);
+                        log::trace!("merge: no remote change in key {} - taking local", key);
                     } else {
-                        log::trace!("merge: conflict in existing key {} - taking remote", k);
-                        ours.insert(k, iv);
+                        log::trace!("merge: conflict in existing key {} - taking remote", key);
+                        ours.insert(key, incoming_value);
                     }
                 } else {
-                    log::trace!("merge: local and incoming same for key {}", k);
+                    log::trace!("merge: local and incoming same for key {}", key);
                 }
             }
             None => {
-                log::trace!("merge: incoming new value for key {}", k);
-                ours.insert(k, iv);
+                log::trace!("merge: incoming new value for key {}", key);
+                ours.insert(key, incoming_value);
             }
         }
     }

@@ -62,10 +62,7 @@ impl OutgoingInfo {
 /// Gets info about what should be uploaded. Returns a vec of the payload which
 /// should be uploaded, plus meta-data for those items which should be held
 /// until the upload is complete, then passed back to record_uploaded.
-pub fn get_outgoing<S: ?Sized + Interruptee>(
-    conn: &Connection,
-    _signal: &S,
-) -> Result<Vec<OutgoingInfo>> {
+pub fn get_outgoing(conn: &Connection, _signal: &dyn Interruptee) -> Result<Vec<OutgoingInfo>> {
     let sql = "SELECT l.ext_id, l.data, l.sync_change_counter, m.guid
                FROM storage_sync_data l
                LEFT JOIN storage_sync_mirror m ON m.ext_id = l.ext_id
@@ -79,10 +76,10 @@ pub fn get_outgoing<S: ?Sized + Interruptee>(
 
 /// Record the fact that an item was uploaded. This updates the state of the
 /// local DB to reflect the state of the server we just updated.
-pub fn record_uploaded<S: ?Sized + Interruptee>(
+pub fn record_uploaded(
     tx: &Transaction<'_>,
     items: &[OutgoingInfo],
-    signal: &S,
+    signal: &dyn Interruptee,
 ) -> Result<()> {
     log::debug!(
         "record_uploaded recording that {} items were uploaded",
