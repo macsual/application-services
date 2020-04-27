@@ -10,7 +10,7 @@ const ATTACHED_CLIENTS_FRESHNESS_THRESHOLD: u64 = 60_000; // 1 minute
 
 impl FirefoxAccount {
     pub fn get_attached_clients(&mut self) -> Result<Vec<AttachedClient>> {
-        if let Some(a) = &self.attached_clients {
+        if let Some(a) = &self.attached_clients_cache {
             if util::now() < a.cached_at + ATTACHED_CLIENTS_FRESHNESS_THRESHOLD {
                 return Ok(a.response.clone());
             }
@@ -21,7 +21,7 @@ impl FirefoxAccount {
             .attached_clients(&self.state.config, &refresh_token)?;
         let attached_clients = response.response;
 
-        self.attached_clients = Some(CachedResponse {
+        self.attached_clients_cache = Some(CachedResponse {
             response: attached_clients.clone(),
             cached_at: util::now(),
             etag: response.etag.unwrap_or_default(),

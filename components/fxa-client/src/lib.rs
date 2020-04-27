@@ -62,7 +62,7 @@ pub struct FirefoxAccount {
     client: Arc<FxAClient>,
     state: State,
     flow_store: HashMap<String, OAuthFlow>,
-    attached_clients: Option<CachedResponse<Vec<http_client::GetAttachedClientResponse>>>,
+    attached_clients_cache: Option<CachedResponse<Vec<http_client::GetAttachedClientResponse>>>,
 }
 
 impl FirefoxAccount {
@@ -71,7 +71,7 @@ impl FirefoxAccount {
             client: Arc::new(http_client::Client::new()),
             state,
             flow_store: HashMap::new(),
-            attached_clients: None,
+            attached_clients_cache: None,
         }
     }
 
@@ -140,7 +140,7 @@ impl FirefoxAccount {
     pub fn start_over(&mut self) {
         self.state = self.state.start_over();
         self.flow_store.clear();
-        self.attached_clients = None;
+        self.attached_clients_cache = None;
     }
 
     /// Get the Sync Token Server endpoint URL.
@@ -598,14 +598,14 @@ mod tests {
             }));
 
         fxa.set_client(Arc::new(client));
-        assert!(fxa.attached_clients.is_none());
+        assert!(fxa.attached_clients_cache.is_none());
 
         let res = fxa.get_attached_clients();
 
         assert!(res.is_ok());
-        assert!(fxa.attached_clients.is_some());
+        assert!(fxa.attached_clients_cache.is_some());
 
-        let cached_attached_clients_res = fxa.attached_clients.unwrap();
+        let cached_attached_clients_res = fxa.attached_clients_cache.unwrap();
         assert!(!cached_attached_clients_res.response.is_empty());
         assert!(cached_attached_clients_res.cached_at > 0);
         assert_eq!(cached_attached_clients_res.etag, "attachedClientsETag");
@@ -643,10 +643,10 @@ mod tests {
             .into()));
 
         fxa.set_client(Arc::new(client));
-        assert!(fxa.attached_clients.is_none());
+        assert!(fxa.attached_clients_cache.is_none());
 
         let res = fxa.get_attached_clients();
         assert!(res.is_err());
-        assert!(fxa.attached_clients.is_none());
+        assert!(fxa.attached_clients_cache.is_none());
     }
 }
