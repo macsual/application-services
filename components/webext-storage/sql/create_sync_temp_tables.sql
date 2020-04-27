@@ -9,17 +9,11 @@ CREATE TEMP TABLE IF NOT EXISTS storage_sync_staging (
     guid TEXT PRIMARY KEY,
 
     /* The extension_id is explicitly not the GUID used on the server.
-       We may end up making this a regular foreign-key relationship back to
-       storage_sync_data, although maybe not - the ext_id may not exist in
-       storage_sync_data at the time we populate this table.
-       We can iterate here as we site up sync support.
+       It can't be  a regular foreign-key relationship back to storage_sync_data
+       as the ext_id for incoming items may not appear in storage_sync_data at
+       the time we populate this table.
     */
     ext_id TEXT NOT NULL UNIQUE,
-
-    /* Timestamp as recorded by the server - XXX - we don't currently use this
-       for anything at all, so should consider killing it?
-    */
-    server_modified INTEGER NOT NULL,
 
     /* The JSON payload. We *do* allow NULL here - it means "deleted" */
     data TEXT

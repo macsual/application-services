@@ -25,10 +25,12 @@ fn json_map_from_row(row: &Row<'_>, col: &str) -> Result<Option<JsonMap>> {
         Some(s) => match serde_json::from_str(&s) {
             Ok(serde_json::Value::Object(m)) => Some(m),
             _ => {
-                // We don't want invalid json or wrong types to kill syncing -
-                // but it should be impossible as we never write anything which
-                // could cause it, so logging shouldn't hurt.
-                log::warn!("skipping invalid json in {}", col);
+                // We don't want invalid json or wrong types to kill syncing.
+                // It should be impossible as we never write anything which
+                // could cause it, but we can't really log the bad data as there
+                // might be PII. Logging just a message without any additional
+                // clues is going to be unhelpfully noisy, so, silently None.
+                // XXX - Maybe record telemetry?
                 None
             }
         },
@@ -46,8 +48,8 @@ pub fn stage_incoming<S: ?Sized + Interruptee>(
     // low road...
     let sql = "
         INSERT OR REPLACE INTO temp.storage_sync_staging
-        (guid, ext_id, data, server_modified)
-        VALUES (:guid, :ext_id, :data, :ts)";
+        (guid, ext_id, data)
+        VALUES (:guid, :ext_id, :data)";
     for bso in incoming_bsos {
         signal.err_if_interrupted()?;
         tx.execute_named_cached(
@@ -56,7 +58,6 @@ pub fn stage_incoming<S: ?Sized + Interruptee>(
                 (":guid", &bso.guid as &dyn ToSql),
                 (":ext_id", &bso.ext_id),
                 (":data", &bso.data),
-                (":ts", &bso.last_modified.as_millis()),
             ],
         )?;
     }
@@ -100,7 +101,7 @@ pub fn get_incoming(conn: &Connection) -> Result<Vec<(IncomingItem, IncomingStat
             s.guid as guid,
             m.guid IS NOT NULL as m_exists,
             l.ext_id IS NOT NULL as l_exists,
-            s.ext_id as ext_id,
+            s.ext_id,
             s.data as s_data, m.data as m_data, l.data as l_data,
             l.sync_change_counter
         FROM temp.storage_sync_staging s
@@ -350,8 +351,8 @@ mod tests {
         // Start with an item just in staging.
         tx.execute(
             r#"
-            INSERT INTO temp.storage_sync_staging (guid, ext_id, data, server_modified)
-            VALUES ('guid', 'ext_id', '{"foo":"bar"}', 1)
+            INSERT INTO temp.storage_sync_staging (guid, ext_id, data)
+            VALUES ('guid', 'ext_id', '{"foo":"bar"}')
         "#,
             NO_PARAMS,
         )?;
@@ -375,8 +376,8 @@ mod tests {
         // Add the same item to the mirror.
         tx.execute(
             r#"
-            INSERT INTO storage_sync_mirror (guid, ext_id, data, server_modified)
-            VALUES ('guid', 'ext_id', '{"foo":"new"}', 2)
+            INSERT INTO storage_sync_mirror (guid, ext_id, data)
+            VALUES ('guid', 'ext_id', '{"foo":"new"}')
         "#,
             NO_PARAMS,
         )?;
@@ -415,8 +416,8 @@ mod tests {
         // Start with an item just in staging.
         tx.execute(
             r#"
-            INSERT INTO temp.storage_sync_staging (guid, ext_id, data, server_modified)
-            VALUES ('guid', 'ext_id', NULL, 1)
+            INSERT INTO temp.storage_sync_staging (guid, ext_id, data)
+            VALUES ('guid', 'ext_id', NULL)
         "#,
             NO_PARAMS,
         )?;
@@ -431,8 +432,8 @@ mod tests {
         // Add the same item to the mirror.
         tx.execute(
             r#"
-            INSERT INTO storage_sync_mirror (guid, ext_id, data, server_modified)
-            VALUES ('guid', 'ext_id', NULL, 2)
+            INSERT INTO storage_sync_mirror (guid, ext_id, data)
+            VALUES ('guid', 'ext_id', NULL)
         "#,
             NO_PARAMS,
         )?;

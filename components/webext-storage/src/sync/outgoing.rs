@@ -112,8 +112,8 @@ pub fn record_uploaded<S: ?Sized + Interruptee>(
     // Copy staging into the mirror, then kill staging, and local tombstones.
     tx.execute_batch(
         "
-        REPLACE INTO storage_sync_mirror (guid, ext_id, server_modified, data)
-        SELECT guid, ext_id, server_modified, data FROM temp.storage_sync_staging;
+        REPLACE INTO storage_sync_mirror (guid, ext_id, data)
+        SELECT guid, ext_id, data FROM temp.storage_sync_staging;
 
         DELETE FROM temp.storage_sync_staging;
 
@@ -121,10 +121,9 @@ pub fn record_uploaded<S: ?Sized + Interruptee>(
     )?;
 
     // And the stuff that was uploaded should be placed in the mirror.
-    // XXX - server_modified is wrong here - do we even need it in the schema?
     let sql = "
-        REPLACE INTO storage_sync_mirror (guid, ext_id, server_modified, data)
-        VALUES (:guid, :ext_id, :server_modified, :data);
+        REPLACE INTO storage_sync_mirror (guid, ext_id, data)
+        VALUES (:guid, :ext_id, :data);
     ";
     for item in items.iter() {
         signal.err_if_interrupted()?;
@@ -133,7 +132,6 @@ pub fn record_uploaded<S: ?Sized + Interruptee>(
             rusqlite::named_params! {
                 ":guid": item.payload.guid,
                 ":ext_id": item.state.ext_id,
-                ":server_modified": item.payload.last_modified.0, // XXX - wrong!
                 ":data": item.payload.data,
             },
         )?;

@@ -125,8 +125,8 @@ mod tests {
         // insert something into our new temp table and check it's there.
         conn.execute_batch(
             "INSERT INTO temp.storage_sync_staging
-                            (guid, ext_id, server_modified) VALUES
-                            ('guid', 'ext_id', 1);",
+                            (guid, ext_id) VALUES
+                            ('guid', 'ext_id');",
         )
         .expect("should work once");
         let count = conn
