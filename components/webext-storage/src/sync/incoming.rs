@@ -44,23 +44,28 @@ pub fn stage_incoming<S: ?Sized + Interruptee>(
     incoming_bsos: Vec<ServerPayload>,
     signal: &S,
 ) -> Result<()> {
-    // markh always struggles with the sql_support chunking :( So take the
-    // low road...
-    let sql = "
-        INSERT OR REPLACE INTO temp.storage_sync_staging
-        (guid, ext_id, data)
-        VALUES (:guid, :ext_id, :data)";
-    for bso in incoming_bsos {
-        signal.err_if_interrupted()?;
-        tx.execute_named_cached(
-            &sql,
-            &[
-                (":guid", &bso.guid as &dyn ToSql),
-                (":ext_id", &bso.ext_id),
-                (":data", &bso.data),
-            ],
-        )?;
-    }
+    sql_support::each_sized_chunk(
+        &incoming_bsos,
+        // We bind 3 params per chunk.
+        sql_support::default_max_variable_number() / 3,
+        |chunk, _| -> Result<()> {
+            let sql = format!(
+                "INSERT OR REPLACE INTO temp.storage_sync_staging
+                (guid, ext_id, data)
+                VALUES {}",
+                sql_support::repeat_multi_values(chunk.len(), 3)
+            );
+            let mut params = Vec::with_capacity(chunk.len() * 3);
+            for bso in chunk {
+                signal.err_if_interrupted()?;
+                params.push(&bso.guid as &dyn ToSql);
+                params.push(&bso.ext_id);
+                params.push(&bso.data);
+            }
+            tx.execute(&sql, &params)?;
+            Ok(())
+        },
+    )?;
     Ok(())
 }
 
