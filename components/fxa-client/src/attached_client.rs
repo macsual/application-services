@@ -29,4 +29,22 @@ impl FirefoxAccount {
 
         Ok(attached_clients)
     }
+
+    pub fn destroy_attached_client(
+        &self,
+        client_id: &str,
+        session_token_id: Option<String>,
+        device_id: Option<String>,
+    ) -> Result<()> {
+        let refresh_token = self.get_refresh_token()?;
+        self
+            .client
+            .destroy_attached_client(
+                &self.state.config,
+                &refresh_token,
+                client_id,
+                session_token_id,
+                device_id,
+            )
+    }
 }
